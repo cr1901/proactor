@@ -18,13 +18,11 @@
 
 import os, re, sys
 if os.name == "posix":
-    import resource, fcntl
+    import resource
 import signal
 import subprocess
 import asyncio
 from functools import partial
-from shutil import copyfile
-from select import select
 from time import time, localtime
 
 all_tasks_running = []
@@ -188,28 +186,11 @@ class SbyAbort(BaseException):
 
 class SbyJob:
     def __init__(self, sbyconfig, workdir, early_logs, reusedir):
-        self.options = dict()
-        self.used_options = set()
         self.engines = list()
-        self.script = list()
-        self.files = dict()
-        self.verbatim_files = dict()
         self.models = dict()
         self.workdir = workdir
-        self.reusedir = reusedir
         self.status = "UNKNOWN"
-        self.total_time = 0
         self.expect = []
-
-        self.exe_paths = {
-            "yosys": "yosys",
-            "abc": "yosys-abc",
-            "smtbmc": "yosys-smtbmc",
-            "suprove": "suprove",
-            "aigbmc": "aigbmc",
-            "avy": "avy",
-            "btormc": "btormc",
-        }
 
         self.tasks_running = []
         self.tasks_pending = []
@@ -288,15 +269,10 @@ class SbyJob:
     def error(self, logmessage):
         raise SbyAbort(logmessage)
 
-    def makedirs(self, path):
-        if self.reusedir and os.path.isdir(path):
-            rmtree(path, ignore_errors=True)
-        os.makedirs(path)
-
     def make_model(self, model_name):
         if model_name in ["base", "nomem"]:
             task = SbyTask(self, model_name, [],
-                    "cd %s/src; %s -ql ../model/design%s.log ../model/design%s.ys" % (self.workdir, self.exe_paths["yosys"],
+                    "cd %s/src; %s -ql ../model/design%s.log ../model/design%s.ys" % (self.workdir, "yosys",
                     "" if model_name == "base" else "_nomem", "" if model_name == "base" else "_nomem"))
             task.checkretcode = True
 
@@ -304,7 +280,7 @@ class SbyJob:
 
         if re.match(r"^smt2(_syn)?(_nomem)?(_stbv|_stdt)?$", model_name):
             task = SbyTask(self, model_name, self.model("nomem" if "_nomem" in model_name else "base"),
-                    "cd %s/model; %s -ql design_%s.log design_%s.ys" % (self.workdir, self.exe_paths["yosys"], model_name, model_name))
+                    "cd %s/model; %s -ql design_%s.log design_%s.ys" % (self.workdir, "yosys", model_name, model_name))
             task.checkretcode = True
 
             return [task]
@@ -336,23 +312,20 @@ class SbyJob:
 
         self.engines = [["smtbmc", "yices"], ["smtbmc", "z3"]]
         self.__dict__["opt_mode"] = "bmc"
-        self.used_options.add("mode")
 
         self.expect = ["PASS"]
 
-        self.__dict__["opt_multiclock"] = False
         self.__dict__["opt_wait"] = False
         self.__dict__["opt_timeout"] = None
-        self.__dict__["opt_smtc"] = None
-        self.__dict__["opt_skip"] = None
-        self.__dict__["opt_tbtop"] = None
+
+        
 
         for engine_idx in range(len(self.engines)):
             engine = self.engines[engine_idx]
             assert len(engine) > 0
 
             self.log("engine_%d: %s" % (engine_idx, " ".join(engine)))
-            self.makedirs("%s/engine_%d" % (self.workdir, engine_idx))
+            os.makedirs("%s/engine_%d" % (self.workdir, engine_idx))
 
             bin_name = "yices" if engine_idx == 0 else "z3"
             task = SbyTask(self, "engine_%d" % engine_idx, self.model("smt2"),
@@ -392,7 +365,7 @@ class SbyJob:
 
 
 if __name__ == "__main__":
-    import sys, os, json, shutil, zipfile
+    import sys, os, shutil, zipfile
 
     sys.path += ["C:\\msys64\\mingw64\\share\\yosys\\python3"]
 
