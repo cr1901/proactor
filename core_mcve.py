@@ -225,9 +225,6 @@ class SbyJob:
 
         self.logfile = open("%s/logfile.txt" % workdir, "a")
 
-        for line in early_logs:
-            print(line, file=self.logfile, flush=True)
-
         if not reusedir:
             with open("%s/config.sby" % workdir, "w") as f:
                 for line in sbyconfig:
@@ -310,59 +307,7 @@ class SbyJob:
             rmtree(path, ignore_errors=True)
         os.makedirs(path)
 
-    def copy_src(self):
-        os.makedirs(self.workdir + "/src")
-
-        for dstfile, lines in self.verbatim_files.items():
-            dstfile = self.workdir + "/src/" + dstfile
-            self.log("Writing '%s'." % dstfile)
-
-            with open(dstfile, "w") as f:
-                for line in lines:
-                    f.write(line)
-
-        for dstfile, srcfile in self.files.items():
-            if dstfile.startswith("/") or dstfile.startswith("../") or ("/../" in dstfile):
-                self.error("destination filename must be a relative path without /../: %s" % dstfile)
-            dstfile = self.workdir + "/src/" + dstfile
-
-            if srcfile.startswith("~/"):
-                srcfile = os.environ['HOME'] + srcfile[1:]
-
-            basedir = os.path.dirname(dstfile)
-            if basedir != "" and not os.path.exists(basedir):
-                os.makedirs(basedir)
-
-            self.log("Copy '%s' to '%s'." % (srcfile, dstfile))
-            copyfile(srcfile, dstfile)
-
-    def handle_str_option(self, option_name, default_value):
-        if option_name in self.options:
-            self.__dict__["opt_" + option_name] = self.options[option_name]
-            self.used_options.add(option_name)
-        else:
-            self.__dict__["opt_" + option_name] = default_value
-
-    def handle_int_option(self, option_name, default_value):
-        if option_name in self.options:
-            self.__dict__["opt_" + option_name] = int(self.options[option_name])
-            self.used_options.add(option_name)
-        else:
-            self.__dict__["opt_" + option_name] = default_value
-
-    def handle_bool_option(self, option_name, default_value):
-        if option_name in self.options:
-            if self.options[option_name] not in ["on", "off"]:
-                self.error("Invalid value '%s' for boolean option %s." % (self.options[option_name], option_name))
-            self.__dict__["opt_" + option_name] = self.options[option_name] == "on"
-            self.used_options.add(option_name)
-        else:
-            self.__dict__["opt_" + option_name] = default_value
-
     def make_model(self, model_name):
-        if not os.path.isdir("%s/model" % self.workdir):
-            os.makedirs("%s/model" % self.workdir)
-
         if model_name in ["base", "nomem"]:
             task = SbyTask(self, model_name, [],
                     "cd %s/src; %s -ql ../model/design%s.log ../model/design%s.ys" % (self.workdir, self.exe_paths["yosys"],
@@ -502,40 +447,17 @@ class SbyJob:
 
                 self.error("sby file syntax error: %s" % line)
 
-        self.handle_str_option("mode", None)
-
-        if self.opt_mode not in ["bmc", "prove", "cover", "live"]:
-            self.error("Invalid mode: %s" % self.opt_mode)
+        self.__dict__["opt_mode"] = "bmc"
+        self.used_options.add("mode")
 
         self.expect = ["PASS"]
-        if "expect" in self.options:
-            self.expect = self.options["expect"].upper().split(",")
-            self.used_options.add("expect")
 
-        for s in self.expect:
-            if s not in ["PASS", "FAIL", "UNKNOWN", "ERROR", "TIMEOUT"]:
-                self.error("Invalid expect value: %s" % s)
-
-        self.handle_bool_option("multiclock", False)
-        self.handle_bool_option("wait", False)
-        self.handle_int_option("timeout", None)
-
-        self.handle_str_option("smtc", None)
-        self.handle_int_option("skip", None)
-        self.handle_str_option("tbtop", None)
-
-        if self.opt_smtc is not None:
-            for engine in self.engines:
-                if engine[0] != "smtbmc":
-                    self.error("Option smtc is only valid for smtbmc engine.")
-
-        if self.opt_skip is not None:
-            if self.opt_skip == 0:
-                self.opt_skip = None
-            else:
-                for engine in self.engines:
-                    if engine[0] not in ["smtbmc", "btor"]:
-                        self.error("Option skip is only valid for smtbmc and btor engines.")
+        self.__dict__["opt_multiclock"] = False
+        self.__dict__["opt_wait"] = False
+        self.__dict__["opt_timeout"] = None
+        self.__dict__["opt_smtc"] = None
+        self.__dict__["opt_skip"] = None
+        self.__dict__["opt_tbtop"] = None
 
         if setupmode:
             self.retcode = 0
