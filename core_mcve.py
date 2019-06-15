@@ -477,8 +477,44 @@ class SbyJob:
                 self.log("engine_%d: %s" % (engine_idx, " ".join(engine)))
                 self.makedirs("%s/engine_%d" % (self.workdir, engine_idx))
 
-                import engine_smtbmc_mcve
-                engine_smtbmc_mcve.init("bmc", self, engine_idx, engine)
+                bin_name = "yices" if engine_idx == 0 else "z3"
+                task = SbyTask(self, "engine_%d" % engine_idx, self.model("smt2"),
+                          "cd demo3& yosys-smtbmc -s %s --presat --unroll --noprogress -t 30 --append 0 --dump-vcd engine_%d/trace.vcd --dump-vlogtb engine_%d/trace_tb.v --dump-smtc engine_%d/trace.smtc model/design_smt2.smt2" %
+                                (bin_name, engine_idx, engine_idx, engine_idx),
+                          logfile=open("demo3/engine_0/logfile.txt", "w"), logstderr=True)
+
+                task_status = None
+
+                def output_callback(line):
+                    nonlocal task_status
+
+                    match = re.match(r"^## [0-9: ]+ Status: FAILED", line)
+                    if match: task_status = "FAIL"
+
+                    match = re.match(r"^## [0-9: ]+ Status: PASSED", line)
+                    if match: task_status = "PASS"
+
+                    return line
+
+                def exit_callback(retcode):
+                    if task_status is None:
+                        job.error("engine_%d: Engine terminated without status." % engine_idx)
+
+                    self.update_status(task_status)
+                    self.log("engine_%d: Status returned by engine: %s" % (engine_idx, task_status))
+                    self.summary.append("engine_%d (%s) returned %s" % (engine_idx, " ".join(engine), task_status))
+
+                    if task_status == "FAIL" and mode != "cover":
+                        if os.path.exists("%s/engine_%d/trace.vcd" % (self.workdir, engine_idx)):
+                            self.summary.append("counterexample trace: %s/engine_%d/trace.vcd" % (self.workdir, engine_idx))
+
+                    self.terminate()
+
+                task.output_callback = output_callback
+                task.exit_callback = exit_callback
+
+
+
         else:
             assert False
 
