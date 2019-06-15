@@ -9,7 +9,7 @@ with open("config.json", "rb") as fp:
     config = json.load(fp)
 
 shutil.rmtree("demo3", ignore_errors=True)
-os.makedirs("demo3")
+shutil.copytree("demo3-hier", "demo3")
 job = SbyJob(config, "demo3", "", False)
 
 try:
