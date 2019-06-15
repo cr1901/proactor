@@ -225,11 +225,6 @@ class SbyJob:
 
         self.logfile = open("%s/logfile.txt" % workdir, "a")
 
-        if not reusedir:
-            with open("%s/config.sby" % workdir, "w") as f:
-                for line in sbyconfig:
-                    print(line, file=f)
-
     def taskloop(self):
         if os.name != "posix":
             loop = asyncio.ProactorEventLoop()
@@ -361,92 +356,7 @@ class SbyJob:
         mode = None
         key = None
 
-        with open("%s/config.sby" % self.workdir, "r") as f:
-            for line in f:
-                raw_line = line
-                if mode in ["options", "engines", "files"]:
-                    line = re.sub(r"\s*(\s#.*)?$", "", line)
-                    if line == "" or line[0] == "#":
-                        continue
-                else:
-                    line = line.rstrip()
-                # print(line)
-                if mode is None and (len(line) == 0 or line[0] == "#"):
-                    continue
-                match = re.match(r"^\s*\[(.*)\]\s*$", line)
-                if match:
-                    entries = match.group(1).split()
-                    if len(entries) == 0:
-                        self.error("sby file syntax error: %s" % line)
-
-                    if entries[0] == "options":
-                        mode = "options"
-                        if len(self.options) != 0 or len(entries) != 1:
-                            self.error("sby file syntax error: %s" % line)
-                        continue
-
-                    if entries[0] == "engines":
-                        mode = "engines"
-                        if len(self.engines) != 0 or len(entries) != 1:
-                            self.error("sby file syntax error: %s" % line)
-                        continue
-
-                    if entries[0] == "script":
-                        mode = "script"
-                        if len(self.script) != 0 or len(entries) != 1:
-                            self.error("sby file syntax error: %s" % line)
-                        continue
-
-                    if entries[0] == "file":
-                        mode = "file"
-                        if len(entries) != 2:
-                            self.error("sby file syntax error: %s" % line)
-                        current_verbatim_file = entries[1]
-                        if current_verbatim_file in self.verbatim_files:
-                            self.error("duplicate file: %s" % entries[1])
-                        self.verbatim_files[current_verbatim_file] = list()
-                        continue
-
-                    if entries[0] == "files":
-                        mode = "files"
-                        if len(entries) != 1:
-                            self.error("sby file syntax error: %s" % line)
-                        continue
-
-                    self.error("sby file syntax error: %s" % line)
-
-                if mode == "options":
-                    entries = line.split()
-                    if len(entries) != 2:
-                        self.error("sby file syntax error: %s" % line)
-                    self.options[entries[0]] = entries[1]
-                    continue
-
-                if mode == "engines":
-                    entries = line.split()
-                    self.engines.append(entries)
-                    continue
-
-                if mode == "script":
-                    self.script.append(line)
-                    continue
-
-                if mode == "files":
-                    entries = line.split()
-                    if len(entries) == 1:
-                        self.files[os.path.basename(entries[0])] = entries[0]
-                    elif len(entries) == 2:
-                        self.files[entries[0]] = entries[1]
-                    else:
-                        self.error("sby file syntax error: %s" % line)
-                    continue
-
-                if mode == "file":
-                    self.verbatim_files[current_verbatim_file].append(raw_line)
-                    continue
-
-                self.error("sby file syntax error: %s" % line)
-
+        self.engines = [["smtbmc", "yices"], ["smtbmc", "z3"]]
         self.__dict__["opt_mode"] = "bmc"
         self.used_options.add("mode")
 
@@ -459,68 +369,48 @@ class SbyJob:
         self.__dict__["opt_skip"] = None
         self.__dict__["opt_tbtop"] = None
 
-        if setupmode:
-            self.retcode = 0
-            return
+        for engine_idx in range(len(self.engines)):
+            engine = self.engines[engine_idx]
+            assert len(engine) > 0
 
-        if self.opt_mode == "bmc":
-            self.__dict__["opt_depth"] = 30
-            self.used_options.add("depth")
+            self.log("engine_%d: %s" % (engine_idx, " ".join(engine)))
+            self.makedirs("%s/engine_%d" % (self.workdir, engine_idx))
 
-            self.__dict__["opt_append"] = 0
-            self.__dict__["opt_aigsmt"] = "yices"
+            bin_name = "yices" if engine_idx == 0 else "z3"
+            task = SbyTask(self, "engine_%d" % engine_idx, self.model("smt2"),
+                      "cd demo3& yosys-smtbmc -s %s --presat --unroll --noprogress -t 30 --append 0 --dump-vcd engine_%d/trace.vcd --dump-vlogtb engine_%d/trace_tb.v --dump-smtc engine_%d/trace.smtc model/design_smt2.smt2" %
+                            (bin_name, engine_idx, engine_idx, engine_idx),
+                      logfile=open("demo3/engine_0/logfile.txt", "w"), logstderr=True)
 
-            for engine_idx in range(len(self.engines)):
-                engine = self.engines[engine_idx]
-                assert len(engine) > 0
+            task_status = None
 
-                self.log("engine_%d: %s" % (engine_idx, " ".join(engine)))
-                self.makedirs("%s/engine_%d" % (self.workdir, engine_idx))
+            def output_callback(line):
+                nonlocal task_status
 
-                bin_name = "yices" if engine_idx == 0 else "z3"
-                task = SbyTask(self, "engine_%d" % engine_idx, self.model("smt2"),
-                          "cd demo3& yosys-smtbmc -s %s --presat --unroll --noprogress -t 30 --append 0 --dump-vcd engine_%d/trace.vcd --dump-vlogtb engine_%d/trace_tb.v --dump-smtc engine_%d/trace.smtc model/design_smt2.smt2" %
-                                (bin_name, engine_idx, engine_idx, engine_idx),
-                          logfile=open("demo3/engine_0/logfile.txt", "w"), logstderr=True)
+                match = re.match(r"^## [0-9: ]+ Status: FAILED", line)
+                if match: task_status = "FAIL"
 
-                task_status = None
+                match = re.match(r"^## [0-9: ]+ Status: PASSED", line)
+                if match: task_status = "PASS"
 
-                def output_callback(line):
-                    nonlocal task_status
+                return line
 
-                    match = re.match(r"^## [0-9: ]+ Status: FAILED", line)
-                    if match: task_status = "FAIL"
+            def exit_callback(retcode):
+                if task_status is None:
+                    job.error("engine_%d: Engine terminated without status." % engine_idx)
 
-                    match = re.match(r"^## [0-9: ]+ Status: PASSED", line)
-                    if match: task_status = "PASS"
+                self.update_status(task_status)
+                self.log("engine_%d: Status returned by engine: %s" % (engine_idx, task_status))
+                self.summary.append("engine_%d (%s) returned %s" % (engine_idx, " ".join(engine), task_status))
 
-                    return line
+                if task_status == "FAIL" and mode != "cover":
+                    if os.path.exists("%s/engine_%d/trace.vcd" % (self.workdir, engine_idx)):
+                        self.summary.append("counterexample trace: %s/engine_%d/trace.vcd" % (self.workdir, engine_idx))
 
-                def exit_callback(retcode):
-                    if task_status is None:
-                        job.error("engine_%d: Engine terminated without status." % engine_idx)
+                self.terminate()
 
-                    self.update_status(task_status)
-                    self.log("engine_%d: Status returned by engine: %s" % (engine_idx, task_status))
-                    self.summary.append("engine_%d (%s) returned %s" % (engine_idx, " ".join(engine), task_status))
-
-                    if task_status == "FAIL" and mode != "cover":
-                        if os.path.exists("%s/engine_%d/trace.vcd" % (self.workdir, engine_idx)):
-                            self.summary.append("counterexample trace: %s/engine_%d/trace.vcd" % (self.workdir, engine_idx))
-
-                    self.terminate()
-
-                task.output_callback = output_callback
-                task.exit_callback = exit_callback
-
-
-
-        else:
-            assert False
-
-        for opt in self.options.keys():
-            if opt not in self.used_options:
-                self.error("Unused option: %s" % opt)
+            task.output_callback = output_callback
+            task.exit_callback = exit_callback
 
         self.taskloop()
 
