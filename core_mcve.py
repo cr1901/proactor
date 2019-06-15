@@ -286,15 +286,6 @@ class SbyJob:
         print("SBY %2d:%02d:%02d [%s] %s" % (tm.tm_hour, tm.tm_min, tm.tm_sec, self.workdir, logmessage), file=self.logfile, flush=True)
 
     def error(self, logmessage):
-        tm = localtime()
-        print("SBY %2d:%02d:%02d [%s] ERROR: %s" % (tm.tm_hour, tm.tm_min, tm.tm_sec, self.workdir, logmessage), flush=True)
-        print("SBY %2d:%02d:%02d [%s] ERROR: %s" % (tm.tm_hour, tm.tm_min, tm.tm_sec, self.workdir, logmessage), file=self.logfile, flush=True)
-        self.status = "ERROR"
-        if "ERROR" not in self.expect:
-            self.retcode = 16
-        self.terminate()
-        with open("%s/%s" % (self.workdir, self.status), "w") as f:
-            print("ERROR: %s" % logmessage, file=f)
         raise SbyAbort(logmessage)
 
     def makedirs(self, path):
@@ -332,22 +323,9 @@ class SbyJob:
     def update_status(self, new_status):
         assert new_status in ["PASS", "FAIL", "UNKNOWN", "ERROR"]
 
-        if new_status == "UNKNOWN":
-            return
-
-        if self.status == "ERROR":
-            return
-
         if new_status == "PASS":
             assert self.status != "FAIL"
             self.status = "PASS"
-
-        elif new_status == "FAIL":
-            assert self.status != "PASS"
-            self.status = "FAIL"
-
-        elif new_status == "ERROR":
-            self.status = "ERROR"
 
         else:
             assert 0
@@ -396,16 +374,9 @@ class SbyJob:
                 return line
 
             def exit_callback(retcode):
-                if task_status is None:
-                    job.error("engine_%d: Engine terminated without status." % engine_idx)
-
                 self.update_status(task_status)
                 self.log("engine_%d: Status returned by engine: %s" % (engine_idx, task_status))
                 self.summary.append("engine_%d (%s) returned %s" % (engine_idx, " ".join(engine), task_status))
-
-                if task_status == "FAIL" and mode != "cover":
-                    if os.path.exists("%s/engine_%d/trace.vcd" % (self.workdir, engine_idx)):
-                        self.summary.append("counterexample trace: %s/engine_%d/trace.vcd" % (self.workdir, engine_idx))
 
                 self.terminate()
 
@@ -414,43 +385,10 @@ class SbyJob:
 
         self.taskloop()
 
-        total_clock_time = int(time() - self.start_clock_time)
-
-        if os.name == "posix":
-            ru = resource.getrusage(resource.RUSAGE_CHILDREN)
-            total_process_time = int((ru.ru_utime + ru.ru_stime) - self.start_process_time)
-            self.total_time = total_process_time
-
-            self.summary = [
-                "Elapsed clock time [H:MM:SS (secs)]: %d:%02d:%02d (%d)" %
-                        (total_clock_time // (60*60), (total_clock_time // 60) % 60, total_clock_time % 60, total_clock_time),
-                "Elapsed process time [H:MM:SS (secs)]: %d:%02d:%02d (%d)" %
-                        (total_process_time // (60*60), (total_process_time // 60) % 60, total_process_time % 60, total_process_time),
-            ] + self.summary
-        else:
-            self.summary = [
-                "Elapsed clock time [H:MM:SS (secs)]: %d:%02d:%02d (%d)" %
-                        (total_clock_time // (60*60), (total_clock_time // 60) % 60, total_clock_time % 60, total_clock_time),
-                "Elapsed process time unvailable on Windows"
-            ] + self.summary
-
-        for line in self.summary:
-            self.log("summary: %s" % line)
-
-        assert self.status in ["PASS", "FAIL", "UNKNOWN", "ERROR", "TIMEOUT"]
-
         if self.status in self.expect:
             self.retcode = 0
         else:
-            if self.status == "PASS": self.retcode = 1
-            if self.status == "FAIL": self.retcode = 2
-            if self.status == "UNKNOWN": self.retcode = 4
-            if self.status == "TIMEOUT": self.retcode = 8
-            if self.status == "ERROR": self.retcode = 16
-
-        with open("%s/%s" % (self.workdir, self.status), "w") as f:
-            for line in self.summary:
-                print(line, file=f)
+            assert False
 
 
 if __name__ == "__main__":
@@ -463,7 +401,7 @@ if __name__ == "__main__":
     with zipfile.ZipFile("demo3.zip", "r") as zf:
         zf.extractall()
 
-    # Config is dummied out/provided by demo3-hier.
+    # Config is dummied out/provided by demo3.
     job = SbyJob([], "demo3", "", False)
 
     try:
