@@ -1,3 +1,0 @@
-SBY 12:31:40 [demo3] Writing 'demo3/src/demo.v'.
-SBY 12:31:40 [demo3] engine_0: smtbmc yices
-SBY 12:31:40 [demo3] engine_1: smtbmc z3

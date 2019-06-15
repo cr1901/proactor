@@ -454,13 +454,14 @@ class SbyJob:
 
 
 if __name__ == "__main__":
-    import sys, os, json, shutil
+    import sys, os, json, shutil, zipfile
 
     sys.path += ["C:\\msys64\\mingw64\\share\\yosys\\python3"]
 
     # Fake creating the directory hierarchy
     shutil.rmtree("demo3", ignore_errors=True)
-    shutil.copytree("demo3-hier", "demo3")
+    with zipfile.ZipFile("demo3.zip", "r") as zf:
+        zf.extractall()
 
     # Config is dummied out/provided by demo3-hier.
     job = SbyJob([], "demo3", "", False)
