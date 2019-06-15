@@ -451,3 +451,23 @@ class SbyJob:
         with open("%s/%s" % (self.workdir, self.status), "w") as f:
             for line in self.summary:
                 print(line, file=f)
+
+
+if __name__ == "__main__":
+    import sys, os, json, shutil
+
+    sys.path += ["C:\\msys64\\mingw64\\share\\yosys\\python3"]
+
+    # Fake creating the directory hierarchy
+    shutil.rmtree("demo3", ignore_errors=True)
+    shutil.copytree("demo3-hier", "demo3")
+
+    # Config is dummied out/provided by demo3-hier.
+    job = SbyJob([], "demo3", "", False)
+
+    try:
+        job.run(False)
+    except SbyAbort:
+        pass
+
+    sys.exit(job.retcode)
