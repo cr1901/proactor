@@ -464,8 +464,21 @@ class SbyJob:
             return
 
         if self.opt_mode == "bmc":
-            import bmc_mcve
-            bmc_mcve.init(self)
+            self.__dict__["opt_depth"] = 30
+            self.used_options.add("depth")
+
+            self.__dict__["opt_append"] = 0
+            self.__dict__["opt_aigsmt"] = "yices"
+
+            for engine_idx in range(len(self.engines)):
+                engine = self.engines[engine_idx]
+                assert len(engine) > 0
+
+                self.log("engine_%d: %s" % (engine_idx, " ".join(engine)))
+                self.makedirs("%s/engine_%d" % (self.workdir, engine_idx))
+
+                import engine_smtbmc_mcve
+                engine_smtbmc_mcve.init("bmc", self, engine_idx, engine)
         else:
             assert False
 
