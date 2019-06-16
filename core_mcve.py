@@ -17,8 +17,6 @@
 #
 
 import os, re, sys
-if os.name == "posix":
-    import resource
 import signal
 import subprocess
 import asyncio
@@ -33,8 +31,6 @@ def force_shutdown(signum, frame):
         task.terminate()
     sys.exit(1)
 
-if os.name == "posix":
-    signal.signal(signal.SIGHUP, force_shutdown)
 signal.signal(signal.SIGINT, force_shutdown)
 signal.signal(signal.SIGTERM, force_shutdown)
 
@@ -47,21 +43,8 @@ class SbyTask:
         self.job = job
         self.info = info
         self.deps = deps
-        if os.name == "posix":
-            self.cmdline = cmdline
-        else:
-            # Windows command interpreter equivalents for sequential
-            # commands (; => &) command grouping ({} => ()).
-            replacements = {
-                ";" : "&",
-                "{" : "(",
-                "}" : ")",
-            }
 
-            cmdline_copy = cmdline
-            for u, w in replacements.items():
-                cmdline_copy = cmdline_copy.replace(u, w)
-            self.cmdline = cmdline_copy
+        self.cmdline = cmdline
         self.logfile = logfile
         self.noprintregex = None
         self.notify = []
@@ -98,18 +81,14 @@ class SbyTask:
     def terminate(self, timeout=False):
         if self.running:
             self.job.log("%s: terminating process" % self.info)
-            if os.name != "posix":
-                # self.p.terminate does not actually terminate underlying
-                # processes on Windows, so use taskkill to kill the shell
-                # and children. This for some reason does not cause the
-                # associated future (self.fut) to complete until it is awaited
-                # on one last time.
-                # subprocess.Popen("taskkill /T /F /PID {}".format(self.p.pid), stdin=subprocess.DEVNULL,
-                #     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self.p.terminate()
-            else:
-                os.killpg(self.p.pid, signal.SIGTERM)
-                self.p.terminate()
+            # self.p.terminate does not actually terminate underlying
+            # processes on Windows, so use taskkill to kill the shell
+            # and children. This for some reason does not cause the
+            # associated future (self.fut) to complete until it is awaited
+            # on one last time.
+            # subprocess.Popen("taskkill /T /F /PID {}".format(self.p.pid), stdin=subprocess.DEVNULL,
+            #     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.p.terminate()
             self.job.tasks_running.remove(self)
             self.job.tasks_retired.append(self)
             all_tasks_running.remove(self)
@@ -138,14 +117,7 @@ class SbyTask:
                     return
 
             self.job.log("%s: starting process \"%s\"" % (self.info, self.cmdline))
-            if os.name == "posix":
-                def preexec_fn():
-                    signal.signal(signal.SIGINT, signal.SIG_IGN)
-                    os.setpgrp()
-
-                subp_kwargs = { "preexec_fn" : preexec_fn }
-            else:
-                subp_kwargs = { "creationflags" : subprocess.CREATE_NEW_PROCESS_GROUP }
+            subp_kwargs = { "creationflags" : subprocess.CREATE_NEW_PROCESS_GROUP }
 
             self.p = await asyncio.create_subprocess_shell(self.cmdline, stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
@@ -196,18 +168,13 @@ class SbyJob:
 
         self.start_clock_time = time()
 
-        if os.name == "posix":
-            ru = resource.getrusage(resource.RUSAGE_CHILDREN)
-            self.start_process_time = ru.ru_utime + ru.ru_stime
-
         self.summary = list()
 
         self.logfile = open("%s/logfile.txt" % workdir, "a")
 
     def taskloop(self):
-        if os.name != "posix":
-            loop = asyncio.ProactorEventLoop()
-            asyncio.set_event_loop(loop)
+        loop = asyncio.ProactorEventLoop()
+        asyncio.set_event_loop(loop)
         loop = asyncio.get_event_loop()
         poll_fut = asyncio.ensure_future(self.task_poller())
         loop.run_until_complete(poll_fut)
@@ -231,10 +198,9 @@ class SbyJob:
         # Required on Windows. I am unsure why, but subprocesses that were
         # terminated will not have their futures complete until awaited on
         # one last time.
-        if os.name != "posix":
-            for t in self.tasks_retired:
-                if not t.fut.done():
-                    await t.fut
+        for t in self.tasks_retired:
+            if not t.fut.done():
+                await t.fut
 
     def log(self, logmessage):
         tm = localtime()
@@ -266,6 +232,9 @@ class SbyJob:
         self.__dict__["opt_mode"] = "bmc"
 
         self.expect = ["PASS"]
+
+        self.__dict__["opt_timeout"] = None
+
 
         for engine_idx in range(len(self.engines)):
             engine = self.engines[engine_idx]
