@@ -212,27 +212,7 @@ class SbyJob:
         poll_fut = asyncio.ensure_future(self.task_poller())
         loop.run_until_complete(poll_fut)
 
-    async def timekeeper(self):
-        total_clock_time = int(time() - self.start_clock_time)
-
-        try:
-            while total_clock_time <= self.opt_timeout:
-                await asyncio.sleep(1)
-                total_clock_time = int(time() - self.start_clock_time)
-        except asyncio.CancelledError:
-            pass
-
-    def timeout(self, fut):
-        self.log("Reached TIMEOUT (%d seconds). Terminating all tasks." % self.opt_timeout)
-        self.status = "TIMEOUT"
-        self.terminate(timeout=True)
-
     async def task_poller(self):
-        if self.opt_timeout is not None:
-            timer_fut = asyncio.ensure_future(self.timekeeper())
-            done_cb = partial(SbyJob.timeout, self)
-            timer_fut.add_done_callback(done_cb)
-
         # Make a copy b/c tasks_pending is modified by maybe_spawn.
         for task in list(self.tasks_pending):
             await task.maybe_spawn()
@@ -247,10 +227,6 @@ class SbyJob:
             for task in self.tasks_running:
                 if task.fut in done:
                     await task.shutdown_and_notify()
-
-        if self.opt_timeout is not None:
-            timer_fut.remove_done_callback(done_cb)
-            timer_fut.cancel()
 
         # Required on Windows. I am unsure why, but subprocesses that were
         # terminated will not have their futures complete until awaited on
@@ -290,9 +266,6 @@ class SbyJob:
         self.__dict__["opt_mode"] = "bmc"
 
         self.expect = ["PASS"]
-
-        self.__dict__["opt_timeout"] = None
-
 
         for engine_idx in range(len(self.engines)):
             engine = self.engines[engine_idx]
