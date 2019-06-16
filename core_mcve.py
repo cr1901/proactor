@@ -235,7 +235,8 @@ class SbyJob:
             done_cb = partial(SbyJob.timeout, self)
             timer_fut.add_done_callback(done_cb)
 
-        for task in self.tasks_pending:
+        # Make a copy b/c tasks_pending is modified by maybe_spawn.
+        for task in list(self.tasks_pending):
             await task.maybe_spawn()
 
         while len(self.tasks_running):
@@ -295,18 +296,15 @@ class SbyJob:
         self.__dict__["opt_wait"] = False
         self.__dict__["opt_timeout"] = None
 
-        base_task = SbyTask(self, "base", [], "cd demo3/src& yosys -ql ../model/design.log ../model/design.ys")
-        smt2_task = SbyTask(self, "smt2", [base_task], "cd demo3/model& yosys -ql design_smt2.log design_smt2.ys")
 
         for engine_idx in range(len(self.engines)):
             engine = self.engines[engine_idx]
             assert len(engine) > 0
 
             self.log("engine_%d: %s" % (engine_idx, " ".join(engine)))
-            os.makedirs("%s/engine_%d" % (self.workdir, engine_idx))
 
             bin_name = "yices" if engine_idx == 0 else "z3"
-            task = SbyTask(self, "engine_%d" % engine_idx, [smt2_task],
+            task = SbyTask(self, "engine_%d" % engine_idx, [],
                       "cd demo3& yosys-smtbmc -s %s --presat --unroll --noprogress -t 30 --append 0 --dump-vcd engine_%d/trace.vcd --dump-vlogtb engine_%d/trace_tb.v --dump-smtc engine_%d/trace.smtc model/design_smt2.smt2" %
                             (bin_name, engine_idx, engine_idx, engine_idx),
                       logfile=open("demo3/engine_0/logfile.txt", "w"), logstderr=True)
