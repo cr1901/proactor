@@ -96,8 +96,6 @@ class SbyTask:
             self.exit_callback(retcode)
 
     def terminate(self, timeout=False):
-        if self.job.opt_wait and not timeout:
-            return
         if self.running:
             self.job.log("%s: terminating process" % self.info)
             if os.name != "posix":
@@ -293,7 +291,6 @@ class SbyJob:
 
         self.expect = ["PASS"]
 
-        self.__dict__["opt_wait"] = False
         self.__dict__["opt_timeout"] = None
 
 
