@@ -269,29 +269,6 @@ class SbyJob:
     def error(self, logmessage):
         raise SbyAbort(logmessage)
 
-    def make_model(self, model_name):
-        if model_name in ["base", "nomem"]:
-            task = SbyTask(self, model_name, [],
-                    "cd %s/src; %s -ql ../model/design%s.log ../model/design%s.ys" % (self.workdir, "yosys",
-                    "" if model_name == "base" else "_nomem", "" if model_name == "base" else "_nomem"))
-            task.checkretcode = True
-
-            return [task]
-
-        if re.match(r"^smt2(_syn)?(_nomem)?(_stbv|_stdt)?$", model_name):
-            task = SbyTask(self, model_name, self.model("nomem" if "_nomem" in model_name else "base"),
-                    "cd %s/model; %s -ql design_%s.log design_%s.ys" % (self.workdir, "yosys", model_name, model_name))
-            task.checkretcode = True
-
-            return [task]
-
-        assert False
-
-    def model(self, model_name):
-        if model_name not in self.models:
-            self.models[model_name] = self.make_model(model_name)
-        return self.models[model_name]
-
     def terminate(self, timeout=False):
         for task in list(self.tasks_running):
             task.terminate(timeout=timeout)
@@ -318,7 +295,8 @@ class SbyJob:
         self.__dict__["opt_wait"] = False
         self.__dict__["opt_timeout"] = None
 
-        
+        base_task = SbyTask(self, "base", [], "cd demo3/src& yosys -ql ../model/design.log ../model/design.ys")
+        smt2_task = SbyTask(self, "smt2", [base_task], "cd demo3/model& yosys -ql design_smt2.log design_smt2.ys")
 
         for engine_idx in range(len(self.engines)):
             engine = self.engines[engine_idx]
@@ -328,7 +306,7 @@ class SbyJob:
             os.makedirs("%s/engine_%d" % (self.workdir, engine_idx))
 
             bin_name = "yices" if engine_idx == 0 else "z3"
-            task = SbyTask(self, "engine_%d" % engine_idx, self.model("smt2"),
+            task = SbyTask(self, "engine_%d" % engine_idx, [smt2_task],
                       "cd demo3& yosys-smtbmc -s %s --presat --unroll --noprogress -t 30 --append 0 --dump-vcd engine_%d/trace.vcd --dump-vlogtb engine_%d/trace_tb.v --dump-smtc engine_%d/trace.smtc model/design_smt2.smt2" %
                             (bin_name, engine_idx, engine_idx, engine_idx),
                       logfile=open("demo3/engine_0/logfile.txt", "w"), logstderr=True)
