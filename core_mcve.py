@@ -35,7 +35,7 @@ signal.signal(signal.SIGINT, force_shutdown)
 signal.signal(signal.SIGTERM, force_shutdown)
 
 class SbyTask:
-    def __init__(self, job, info, deps, cmdline, logfile=None, logstderr=True):
+    def __init__(self, job, info, deps, cmdline):
         self.running = False
         self.finished = False
         self.terminated = False
@@ -45,11 +45,9 @@ class SbyTask:
         self.deps = deps
 
         self.cmdline = cmdline
-        self.logfile = logfile
         self.noprintregex = None
         self.notify = []
         self.linebuffer = ""
-        self.logstderr = logstderr
 
         self.job.tasks_pending.append(self)
 
@@ -66,21 +64,17 @@ class SbyTask:
         if self.output_callback is not None:
             line = self.output_callback(line)
         if line is not None and (self.noprintregex is None or not self.noprintregex.match(line)):
-            if self.logfile is not None:
-                print(line, file=self.logfile)
-            self.job.log("%s: %s" % (self.info, line))
+            print("%s: %s" % (self.info, line))
 
     def handle_exit(self, retcode):
         if self.terminated:
             return
-        if self.logfile is not None:
-            self.logfile.close()
         if self.exit_callback is not None:
             self.exit_callback(retcode)
 
     def terminate(self, timeout=False):
         if self.running:
-            self.job.log("%s: terminating process" % self.info)
+            print("%s: terminating process" % self.info)
             # self.p.terminate does not actually terminate underlying
             # processes on Windows, so use taskkill to kill the shell
             # and children. This for some reason does not cause the
@@ -116,12 +110,12 @@ class SbyTask:
                 if not dep.finished:
                     return
 
-            self.job.log("%s: starting process \"%s\"" % (self.info, self.cmdline))
+            print("%s: starting process \"%s\"" % (self.info, self.cmdline))
             subp_kwargs = { "creationflags" : subprocess.CREATE_NEW_PROCESS_GROUP }
 
             self.p = await asyncio.create_subprocess_shell(self.cmdline, stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=(asyncio.subprocess.STDOUT if self.logstderr else None),
+                    stderr=asyncio.subprocess.STDOUT,
                     **subp_kwargs)
             self.job.tasks_pending.remove(self)
             self.job.tasks_running.append(self)
@@ -131,7 +125,7 @@ class SbyTask:
             self.fut = asyncio.ensure_future(self.p.wait())
 
     async def shutdown_and_notify(self):
-        self.job.log("%s: finished (returncode=%d)" % (self.info, self.p.returncode))
+        print("%s: finished (returncode=%d)" % (self.info, self.p.returncode))
         self.job.tasks_running.remove(self)
         self.job.tasks_retired.append(self)
         self.running = False
@@ -140,7 +134,7 @@ class SbyTask:
 
         if self.checkretcode and self.p.returncode != 0:
             self.job.status = "ERROR"
-            self.job.log("%s: job failed. ERROR." % self.info)
+            print("%s: job failed. ERROR." % self.info)
             self.terminated = True
             self.job.terminate()
             return
@@ -200,10 +194,6 @@ class SbyJob:
             if not t.fut.done():
                 await t.fut
 
-    def log(self, logmessage):
-        tm = localtime()
-        print("SBY %2d:%02d:%02d [%s] %s" % (tm.tm_hour, tm.tm_min, tm.tm_sec, self.workdir, logmessage), flush=True)
-
     def error(self, logmessage):
         raise SbyAbort(logmessage)
 
@@ -237,7 +227,7 @@ class SbyJob:
             engine = self.engines[engine_idx]
             assert len(engine) > 0
 
-            self.log("engine_%d: %s" % (engine_idx, " ".join(engine)))
+            print("engine_%d: %s" % (engine_idx, " ".join(engine)))
 
             echo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "echo", "target", "debug", "echo.exe")
             args = "-i" if engine_idx == 0 else "-n 4"
@@ -254,7 +244,7 @@ class SbyJob:
 
             def exit_callback(retcode):
                 self.update_status(task_status)
-                self.log("engine_%d: Status returned by engine: %s" % (engine_idx, task_status))
+                print("engine_%d: Status returned by engine: %s" % (engine_idx, task_status))
                 self.summary.append("engine_%d (%s) returned %s" % (engine_idx, " ".join(engine), task_status))
 
                 self.terminate()
