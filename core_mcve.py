@@ -170,8 +170,6 @@ class SbyJob:
 
         self.summary = list()
 
-        self.logfile = open("%s/logfile.txt" % workdir, "a")
-
     def taskloop(self):
         loop = asyncio.ProactorEventLoop()
         asyncio.set_event_loop(loop)
@@ -205,7 +203,6 @@ class SbyJob:
     def log(self, logmessage):
         tm = localtime()
         print("SBY %2d:%02d:%02d [%s] %s" % (tm.tm_hour, tm.tm_min, tm.tm_sec, self.workdir, logmessage), flush=True)
-        print("SBY %2d:%02d:%02d [%s] %s" % (tm.tm_hour, tm.tm_min, tm.tm_sec, self.workdir, logmessage), file=self.logfile, flush=True)
 
     def error(self, logmessage):
         raise SbyAbort(logmessage)
@@ -242,12 +239,9 @@ class SbyJob:
 
             self.log("engine_%d: %s" % (engine_idx, " ".join(engine)))
 
-            # bin_name = "yices" if engine_idx == 0 else "z3"
-
-            times = 10 if engine_idx == 0 else 4
-            task = SbyTask(self, "engine_%d" % engine_idx, [],
-                      "cd demo3& ping -n %d 192.168.1.1" % times,
-                      logfile=open("demo3/engine_0/logfile.txt", "w"), logstderr=True)
+            echo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "echo", "target", "debug", "echo.exe")
+            args = "-i" if engine_idx == 0 else "-n 4"
+            task = SbyTask(self, "engine_%d" % engine_idx, [], "%s %s" % (echo_path, args))
 
             task_status = None
 
