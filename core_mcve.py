@@ -233,14 +233,7 @@ class SbyJob:
             args = "-i" if engine_idx == 0 else "-n 4"
             task = SbyTask(self, "engine_%d" % engine_idx, [], "%s %s" % (echo_path, args))
 
-            task_status = None
-
-            def output_callback(line):
-                nonlocal task_status
-
-                task_status = "PASS"
-
-                return line
+            task_status = "PASS"
 
             def exit_callback(retcode):
                 self.update_status(task_status)
@@ -249,7 +242,7 @@ class SbyJob:
 
                 self.terminate()
 
-            task.output_callback = output_callback
+            task.output_callback = None
             task.exit_callback = exit_callback
 
         self.taskloop()
